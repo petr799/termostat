@@ -6,66 +6,98 @@ import sys
 import datetime
 import RPi.GPIO as GPIO
 
-
+GPIO.setwarnings (False)
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(4, GPIO.OUT)
+GPIO.setup(24, GPIO.OUT)
 GPIO.setup(25, GPIO.OUT)
+GPIO.setup(22, GPIO.OUT)
+hlavice = {}
+hlavice_flag = {}
+output = {}
+endtemp = {}
+endtemp_low = {}
+endtemp_high = {}
+konecna = 0
+ovl_kotel = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0}
 try:
-  con = mdb.connect('localhost', 'testuser', 'test123', 'testdb');
+
+# pripojeni k databazi
+  con = mdb.connect('localhost', 'tmep', 'heslotmep', 'tmep');
 
   cur = con.cursor()
-  cur.execute("SELECT teplota, teplota2 FROM tme WHERE id=(SELECT max(id) FROM tme)")
+  cur.execute("SELECT room1, room2 FROM tme WHERE id=(SELECT max(id) FROM tme)")
 
   temp = cur.fetchone()
 
-  print "Nejnovejsi teplota : %s " % temp[0]
+  print "Room1 : %s " % temp[0]
   print "Room2: %s " % temp[1]
+
+  for x in range (2):
+	  cur.execute("SELECT kotel FROM provoz WHERE (room = %s)", x)
+	  ovl_kotel_db = cur.fetchone()
+	  ovl_kotel[x] = ovl_kotel_db[0]
+  for x in range (2):
+	  cur.execute("SELECT hlavice FROM provoz WHERE (room = %s)", x)
+	  hlavice_db = cur.fetchone()
+	  hlavice[x] = hlavice_db[0]
+
 #SELECT * FROM `programy` WHERE den = DAYOFWEEK(CURDATE());  
-  cur.execute("SELECT konecna_teplota FROM programy_room1 WHERE (start_time <= CURTIME()) and (end_time >= CURTIME()) and (den = DAYOFWEEK(CURDATE()))")
-  endtemp_r1 = cur.fetchone()
+  for x in range (2):
+#	y = "prog_room%s" % x
+  	cur.execute("""SELECT konecna_teplota FROM prog_room%s WHERE (start_time <= CURTIME()) and (end_time >= CURTIME()) and (den = DAYOFWEEK(CURDATE()))""", (x))
+  	endtemp[x] = cur.fetchone()
 
-  print "konecna room1 : %s " % endtemp_r1
+  	print "konecna room: %s " % endtemp[x]
 
-  cur.execute("SELECT konecna_teplota FROM programy_room2 WHERE (start_time <= CURTIME()) and (end_time >= CURTIME()) and (den = DAYOFWEEK(CURDATE()))")
-  endtemp_r2 = cur.fetchone()
+#  cur.execute("SELECT konecna_teplota FROM prog_room2 WHERE (start_time <= CURTIME()) and (end_time >= CURTIME()) and (den = DAYOFWEEK(CURDATE()))")
+#  endtemp[1] = cur.fetchone()
 
-  print "konecna room2 : %s " % endtemp_r2
+#  print "konecna room2 : %s " % endtemp[0]
 
   hyst = 0.5
-  endtemplow_r1 = endtemp_r1[0] - hyst
-  print "nizka hranice room1: %s " % endtemplow_r1
-  endtemphigh_r1 = endtemp_r1[0] + hyst
-  print "vysoka hranice room1: %s " % endtemphigh_r1
+  for x in range (2):
+	konecna = endtemp[x]
+	low = konecna[0] - hyst
+	high = konecna[0] + hyst
+	endtemp_low[x] = low
+	endtemp_high[x] = high
+  print "nizka hranice room1: %s " % endtemp_low[0]
+  print "vysoka hranice room1: %s " % endtemp_high[0]
+  print "nizka hranice room2: %s " % endtemp_low[1]
+  print "vysoka hranice room2: %s " % endtemp_high[1]
 
-  endtemplow_r2 = endtemp_r2[0] - hyst
-  print "nizka hranice room2: %s " % endtemplow_r2
-  endtemphigh_r2 = endtemp_r2[0] + hyst
-  print "vysoka hranice room2: %s " % endtemphigh_r2
+  for x in range (2):
+	if temp[x] < endtemp_low[x]:
+		
+		hlavice_flag[x] = 1
+		print "zapnout hlavici %s" % x
+		GPIO.output(hlavice[x], GPIO.HIGH)
+  	elif temp[x] > endtemp_high[x]:
+        	hlavice_flag[x] = 0
+		print "vypnout hlavici %s" % x
+		GPIO.output(hlavice[x], GPIO.LOW)
+	elif (temp[x] > endtemp_low[x]) and (temp[x] < endtemp_high[x]):
+		print "nic se nedeje"
 
+  for x in range (2):
+	if hlavice_flag[x] == 1 and ovl_kotel[x] > 0:
+		print "kotel zapnout"
+		GPIO.output(ovl_kotel[x], GPIO.HIGH)
+	elif hlavice_flag[x] == 0 and ovl_kotel[x] > 0:
+		print "kotel vypnout"
+		
 
-#  if temp[0] < endtemplow:
+#  if temp[1] < endtemp_low[1]:
+#        hlavice[1] = 1
+#  elif temp[1] > endtemp_high[1]:
+#        hlavice[1] = 0
+
+#  if (hlavice[0] == 1) or (hlavice[1] == 1):
 #	print "kotel zapnout"
-#  elif temp[0] > endtemphigh:
+#	GPIO.output(25, GPIO.HIGH)
+#  elif (hlavice[0] == 0) and (hlavice[1] == 0):
 #	print "kotel vypnout"
-
-  if temp[0] < endtemplow_r1:
-	hlavice_r1 = 1
-	GPIO.output(4, GPIO.HIGH)
-  elif temp[0] > endtemplow_r1:
-        hlavice_r1 = 0
-	GPIO.output(4, GPIO.LOW)
-
-  if temp[1] < endtemplow_r2:
-        hlavice_r2 = 1
-  elif temp[1] > endtemplow_r2:
-        hlavice_r2 = 0
-
-  if (hlavice_r1 == 1) or (hlavice_r2 == 1):
-	print "kotel zapnout"
-	GPIO.output(25, GPIO.HIGH)
-  elif (hlavice_r1 == 0) and (hlavice_r2 == 0):
-	print "kotel vypnout"
-	GPIO.output(25, GPIO.LOW)
+#	GPIO.output(25, GPIO.LOW)
 
 ########################################################
 #  else:
